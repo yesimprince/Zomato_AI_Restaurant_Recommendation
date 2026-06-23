@@ -1,0 +1,14 @@
+# Data & ML
+datasets
+pandas
+pyarrow
+
+# LLM
+groq
+
+# Config & Validation
+python-dotenv
+pydantic
+pydantic-settings
+
+
