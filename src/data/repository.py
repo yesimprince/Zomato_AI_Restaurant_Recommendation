@@ -33,6 +33,8 @@ class RestaurantRepository:
     def __init__(self, df: Optional[pd.DataFrame] = None) -> None:
         self._df: Optional[pd.DataFrame] = df
         self._restaurants: Optional[List[Restaurant]] = None
+        import threading
+        self._lock = threading.Lock()
 
     # ── lazy initialization ──
 
@@ -41,13 +43,17 @@ class RestaurantRepository:
         if self._df is not None:
             return
 
-        logger.info("Repository not initialized — loading dataset …")
-        loader = DatasetLoader()
-        raw_df = loader.load()
+        with self._lock:
+            if self._df is not None:
+                return
 
-        preprocessor = DataPreprocessor()
-        self._df = preprocessor.preprocess(raw_df)
-        logger.info("Repository initialized with %d restaurants", len(self._df))
+            logger.info("Repository not initialized — loading dataset …")
+            loader = DatasetLoader()
+            raw_df = loader.load()
+
+            preprocessor = DataPreprocessor()
+            self._df = preprocessor.preprocess(raw_df)
+            logger.info("Repository initialized with %d restaurants", len(self._df))
 
     @property
     def df(self) -> pd.DataFrame:

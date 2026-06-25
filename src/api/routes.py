@@ -22,11 +22,12 @@ recommendation_service = RecommendationService()
 def health_check():
     """Check API health and dataset status."""
     try:
-        # Check if dataset is loaded by checking count
-        count = repo.count()
+        # Check if dataset is loaded without triggering a blocking download
+        is_loaded = repo._df is not None
+        count = len(repo._df) if is_loaded else 0
         return HealthResponse(
             status="ok",
-            dataset_loaded=True,
+            dataset_loaded=is_loaded,
             restaurant_count=count
         )
     except Exception as e:
