@@ -3,7 +3,7 @@
    API integration, state management, DOM manipulation
    ═══════════════════════════════════════════════════════════ */
 
-const API_BASE = '/api/v1';
+const API_BASE = 'https://web-production-a1de8.up.railway.app/';
 
 // ── SVG Icon templates ──
 const Icons = {
