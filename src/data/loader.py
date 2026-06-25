@@ -2,6 +2,8 @@
 Dataset loader — fetches the Zomato dataset from Hugging Face.
 
 Implements local caching so repeated runs don't re-download.
+In production (Railway), a pre-built slim parquet is committed to the repo
+so the server never needs to download from Hugging Face at runtime.
 """
 
 from __future__ import annotations
@@ -15,9 +17,12 @@ from src.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Pre-built slim parquet committed to the repo (only essential columns, ~0.5 MB)
+_SLIM_PARQUET = Path(__file__).resolve().parent.parent.parent / "data" / "restaurants_slim.parquet"
+
 
 class DatasetLoader:
-    """Load the Zomato restaurant dataset from Hugging Face or local cache."""
+    """Load the Zomato restaurant dataset from local cache or Hugging Face."""
 
     def __init__(
         self,
@@ -35,13 +40,22 @@ class DatasetLoader:
         """
         Return the raw dataset as a DataFrame.
 
-        Checks for a local parquet cache first; falls back to Hugging Face
-        download and then caches the result.
+        Priority order:
+        1. Pre-built slim parquet (committed to repo — used in production)
+        2. Local raw parquet cache
+        3. Download from Hugging Face (local dev fallback)
         """
+        # 1. Check for the slim parquet committed to the repo
+        if _SLIM_PARQUET.exists():
+            logger.info("Loading dataset from slim parquet: %s", _SLIM_PARQUET)
+            return pd.read_parquet(_SLIM_PARQUET)
+
+        # 2. Check for the full raw cache
         if self._cache_file.exists():
             logger.info("Loading dataset from cache: %s", self._cache_file)
             return pd.read_parquet(self._cache_file)
 
+        # 3. Download from Hugging Face as last resort
         logger.info(
             "Cache not found. Downloading dataset '%s' from Hugging Face …",
             self.dataset_name,
@@ -69,3 +83,4 @@ class DatasetLoader:
         """Persist DataFrame to local parquet for fast reload."""
         df.to_parquet(self._cache_file, index=False)
         logger.info("Cached dataset to %s", self._cache_file)
+

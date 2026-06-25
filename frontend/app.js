@@ -87,11 +87,13 @@ async function fetchHealth() {
   try {
     const res = await fetch(`${API_BASE}/health`);
     const data = await res.json();
-    state.apiConnected = data.status === 'ok';
+    state.apiConnected = data.status?.startsWith('ok');
     els.statusDot.classList.toggle('disconnected', !state.apiConnected);
-    els.statusText.textContent = state.apiConnected
-      ? `API connected · ${data.restaurant_count?.toLocaleString() || 0} restaurants`
-      : 'API error';
+    if (data.dataset_loaded) {
+      els.statusText.textContent = `API connected · ${data.restaurant_count?.toLocaleString() || 0} restaurants`;
+    } else {
+      els.statusText.textContent = 'API connected · Loading data…';
+    }
   } catch {
     state.apiConnected = false;
     els.statusDot.classList.add('disconnected');
@@ -99,10 +101,21 @@ async function fetchHealth() {
   }
 }
 
-async function fetchLocations() {
+async function fetchLocations(retries = 10) {
   try {
     const res = await fetch(`${API_BASE}/locations`);
     const data = await res.json();
+    // If backend returned empty (still loading), retry after a delay
+    if (data.locations.length === 0 && retries > 0) {
+      console.log(`Locations not ready yet, retrying in 5s… (${retries} retries left)`);
+      els.statusText.textContent = 'Loading restaurant data…';
+      setTimeout(() => {
+        fetchLocations(retries - 1);
+        fetchCuisines(retries - 1);
+        fetchHealth();
+      }, 5000);
+      return;
+    }
     const select = els.locationSelect;
     // Keep the placeholder
     data.locations.sort().forEach((loc) => {
@@ -116,16 +129,28 @@ async function fetchLocations() {
       select.value = 'Bangalore';
       state.location = 'Bangalore';
     }
+    // Refresh health status now that data is loaded
+    fetchHealth();
   } catch (err) {
     console.error('Failed to fetch locations:', err);
+    if (retries > 0) {
+      setTimeout(() => fetchLocations(retries - 1), 5000);
+    }
   }
 }
 
-async function fetchCuisines() {
+async function fetchCuisines(retries = 10) {
   try {
     const res = await fetch(`${API_BASE}/cuisines`);
     const data = await res.json();
+    // If backend returned empty (still loading), don't populate yet
+    if (data.cuisines.length === 0 && retries > 0) {
+      // fetchLocations handles the retry for both
+      return;
+    }
     const select = els.cuisineSelect;
+    // Clear existing options except the placeholder
+    while (select.options.length > 1) select.remove(1);
     data.cuisines.sort().forEach((c) => {
       const opt = document.createElement('option');
       opt.value = c;

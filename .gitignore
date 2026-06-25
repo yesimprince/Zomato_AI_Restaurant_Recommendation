@@ -1,8 +1,9 @@
 # Environment secrets
 .env
 
-# Cached dataset
-/data/
+# Cached dataset (large files)
+/data/*
+!/data/restaurants_slim.parquet
 
 # Python
 __pycache__/

@@ -1,4 +1,6 @@
 from pathlib import Path
+import threading
+import logging
 
 from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,11 +13,32 @@ from src.models.preferences import UserPreferences
 from src.models.recommendation import RecommendationResponse
 from src.services.recommendation import RecommendationService
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/v1")
 
 # We will initialize the repository lazily or eagerly on startup
 repo = RestaurantRepository()
 recommendation_service = RecommendationService()
+
+# Track whether background loading is in progress
+_data_loading = False
+_data_loaded = False
+
+
+def _load_data_background():
+    """Load the dataset in a background thread so the server stays responsive."""
+    global _data_loading, _data_loaded
+    _data_loading = True
+    try:
+        logger.info("Background data loading started …")
+        repo._ensure_loaded()
+        _data_loaded = True
+        logger.info("Background data loading complete!")
+    except Exception as e:
+        logger.error("Background data loading failed: %s", e)
+    finally:
+        _data_loading = False
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -25,8 +48,9 @@ def health_check():
         # Check if dataset is loaded without triggering a blocking download
         is_loaded = repo._df is not None
         count = len(repo._df) if is_loaded else 0
+        status = "ok" if is_loaded else "ok - loading data"
         return HealthResponse(
-            status="ok",
+            status=status,
             dataset_loaded=is_loaded,
             restaurant_count=count
         )
@@ -42,6 +66,9 @@ def health_check():
 def get_locations():
     """Get all unique locations from the dataset."""
     try:
+        if repo._df is None:
+            # Data is still loading, return empty list instead of blocking
+            return LocationsResponse(locations=[])
         locations = repo.get_locations()
         return LocationsResponse(locations=locations)
     except Exception as e:
@@ -52,6 +79,9 @@ def get_locations():
 def get_cuisines():
     """Get all unique cuisines from the dataset."""
     try:
+        if repo._df is None:
+            # Data is still loading, return empty list instead of blocking
+            return CuisinesResponse(cuisines=[])
         cuisines = repo.get_cuisines()
         return CuisinesResponse(cuisines=cuisines)
     except Exception as e:
@@ -63,6 +93,11 @@ def get_recommendations(prefs: UserPreferences):
     """
     Get LLM-enriched recommendations based on user preferences.
     """
+    if repo._df is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Server is still loading restaurant data. Please try again in a moment."
+        )
     try:
         response = recommendation_service.recommend(prefs)
         return response
@@ -89,6 +124,13 @@ def create_app() -> FastAPI:
 
     app.include_router(router)
 
+    @app.on_event("startup")
+    def startup_event():
+        """Start loading data in a background thread on server startup."""
+        thread = threading.Thread(target=_load_data_background, daemon=True)
+        thread.start()
+        logger.info("Data loading thread started in background.")
+
     # ── Serve frontend static files ──
     frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"
     if frontend_dir.is_dir():
@@ -102,3 +144,4 @@ def create_app() -> FastAPI:
     return app
 
 app = create_app()
+
